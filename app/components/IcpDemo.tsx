@@ -277,7 +277,7 @@ export default function IcpDemo() {
 
     setLoading(true);
     try {
-      const res = await fetch("https://rb2b-lead-enrichment-middleware-ddh.vercel.app/webhook", {
+      const res = await fetch("https://rb2b-lead-enrichment-middleware-ddhh-v8z7okz34-jbb-ai.vercel.app/webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
