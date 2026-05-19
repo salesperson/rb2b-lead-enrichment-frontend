@@ -45,7 +45,7 @@ type RejectReason =
   | "Airtable Write Failed"
   | null;
 
-type PathValue = "cache_hit" | "edu→gpt" | "reachstream→claude" | "fallback→gpt" | null;
+type PathValue = "cache_hit" | "edu→websearch" | "enrichment→verification" | "fallback→websearch" | null;
 
 interface WebhookResponse {
   status: ResponseStatus;
@@ -99,20 +99,20 @@ function getSubNodes(path: PathValue, node3State: NodeState): [SubNodeInfo, SubN
         { label: "Redis Cache Hit", color: "green" },
         { label: "Skipped",         color: "gray"  },
       ];
-    case "edu→gpt":
+    case "edu→websearch":
       return [
         { label: ".edu Domain",    color: "green"      },
-        { label: "GPT Web Search", color: node3State   },
+        { label: "LLM Web Search", color: node3State   },
       ];
-    case "reachstream→claude":
+    case "enrichment→verification":
       return [
-        { label: "ReachStream",  color: "green"    },
-        { label: "Claude Haiku", color: node3State },
+        { label: "Enrichment",  color: "green"    },
+        { label: "ICP Verification", color: node3State },
       ];
-    case "fallback→gpt":
+    case "fallback→websearch":
       return [
         { label: "Enrichers Missed", color: "red"       },
-        { label: "GPT Web Search",   color: node3State  },
+        { label: "Web Search",   color: node3State  },
       ];
     default:
       return [
