@@ -473,6 +473,18 @@ export default function IcpDemo() {
                     )}
                   </div>
 
+                  {/* Path-specific notes */}
+                  {result.path === "edu_domain" && (
+                    <div className="mb-4 px-3 py-2 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm">
+                      .edu domain — educational institutions are auto-accepted.
+                    </div>
+                  )}
+                  {result.path === "cache_hit" && (
+                    <div className="mb-4 px-3 py-2 rounded-md bg-gray-50 border border-gray-200 text-gray-600 text-sm">
+                      Result served from cache — this company was previously classified.
+                    </div>
+                  )}
+
                   {/* Company description */}
                   {result.company_description && (
                     <p className="text-sm text-gray-700 mb-4">{result.company_description}</p>
@@ -512,12 +524,6 @@ export default function IcpDemo() {
                             {result.evidence_url}
                           </a>
                         </dd>
-                      </div>
-                    )}
-                    {result.explanation && (
-                      <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Explanation</dt>
-                        <dd className="text-sm text-gray-900 italic">{result.explanation}</dd>
                       </div>
                     )}
                   </dl>
