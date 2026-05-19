@@ -40,6 +40,7 @@ type RejectReason =
   | "Company Not Found"
   | "Websearch Failed"
   | "Airtable Write Failed"
+  | "Not Relevant Title"
   | null;
 
 type PathValue = "cache_hit" | "edu_domain" | "gpt" | null;
@@ -66,6 +67,10 @@ interface WebhookResponse {
   evidence_url?: string | null;
   company_description?: string | null;
   explanation?: string | null;
+  relevance?: string | null;
+  function?: string | null;
+  normalized_title?: string | null;
+  title_reason?: string | null;
   verification?: Record<string, unknown> | null;
 }
 
@@ -106,23 +111,26 @@ const PIPELINE_NODES = [
   "Domain Check",
   "Deliverability Check",
   "ICP Classification",
+  "Title Classifier",
   "Database Upload",
 ];
 
 function getPipelineState(res: WebhookResponse | null): NodeState[] {
-  if (!res) return ["gray", "gray", "gray", "gray"];
-  if (res.status === "ok") return ["green", "green", "green", "green"];
+  if (!res) return ["gray", "gray", "gray", "gray", "gray"];
+  if (res.status === "ok") return ["green", "green", "green", "green", "green"];
   switch (res.reason) {
-    case "Is Webmail":       return ["red",   "gray",  "gray",  "gray"];
-    case "Not Deliverable":  return ["green", "red",   "gray",  "gray"];
+    case "Is Webmail":       return ["red",   "gray",  "gray",  "gray",  "gray"];
+    case "Not Deliverable":  return ["green", "red",   "gray",  "gray",  "gray"];
     case "Not ICP":
     case "Websearch Failed":
     case "Company Not Found":
-      return ["green", "green", "red",   "gray"];
+      return ["green", "green", "red",   "gray",  "gray"];
+    case "Not Relevant Title":
+      return ["green", "green", "green", "red",   "gray"];
     case "Airtable Write Failed":
-      return ["green", "green", "green", "red"];
+      return ["green", "green", "green", "green", "red"];
     default:
-      return ["gray",  "gray",  "gray",  "gray"];
+      return ["gray",  "gray",  "gray",  "gray",  "gray"];
   }
 }
 
@@ -201,6 +209,13 @@ function getResultMessage(res: WebhookResponse): ResultMessage {
           title: "Company not found",
           body: "We could not find this company. Please check the website or company name.",
           color: "text-yellow-700 bg-yellow-50 border-yellow-200",
+        };
+      case "Not Relevant Title":
+        return {
+          icon: "⛔",
+          title: "Title not relevant",
+          body: "This contact's job title is not relevant to lab purchasing decisions.",
+          color: "text-red-700 bg-red-50 border-red-200",
         };
       case "Airtable Write Failed":
         return {
@@ -470,6 +485,7 @@ export default function IcpDemo() {
 
           {!loading && !fetchError && result && msg && (() => {
             const isClassified = result.status === "ok" || result.reason === "Not ICP";
+            const isTitleRejected = result.reason === "Not Relevant Title";
             if (isClassified) {
               const passed = result.status === "ok";
               return (
@@ -535,6 +551,45 @@ export default function IcpDemo() {
                             {result.evidence_url}
                           </a>
                         </dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              );
+            }
+
+            if (isTitleRejected) {
+              return (
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-700">
+                      ⛔ REJECTED
+                    </span>
+                    <span className="text-sm text-gray-500">Not Relevant Title</span>
+                  </div>
+                  <dl className="space-y-2">
+                    {result.normalized_title && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Normalized Title</dt>
+                        <dd className="text-sm text-gray-900">{result.normalized_title}</dd>
+                      </div>
+                    )}
+                    {result.function && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Function</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{result.function}</dd>
+                      </div>
+                    )}
+                    {result.relevance && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Relevance</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{result.relevance}</dd>
+                      </div>
+                    )}
+                    {result.title_reason && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Reason</dt>
+                        <dd className="text-sm text-gray-900">{result.title_reason}</dd>
                       </div>
                     )}
                   </dl>
@@ -611,12 +666,21 @@ export default function IcpDemo() {
               </div>
             </div>
 
-            {/* Node 4 */}
+            {/* Node 4 — Title Classifier */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
                 <NodeCircle state={pipelineState[3]} index={4} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[3]]}`} />
               </div>
               <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[3]}</p>
+            </div>
+
+            {/* Node 5 — Database Upload */}
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center w-7 flex-shrink-0">
+                <NodeCircle state={pipelineState[4]} index={5} />
+              </div>
+              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[4]}</p>
             </div>
 
           </div>
