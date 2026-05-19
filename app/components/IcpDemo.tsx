@@ -3,19 +3,19 @@
 import { useState } from "react";
 
 const SAMPLE_PAYLOAD = {
-  "First Name": "Adam",
-  "Last Name": "Test Payload",
-  "Title": "",
-  "Company Name": "RB2B",
-  "Business Email": "test@test.com",
-  "Website": "https://rb2b.com",
-  "Industry": "Internet Technology & Services",
+  "First Name": "Sarah",
+  "Last Name": "Chen",
+  "Title": "Laboratory Director",
+  "Company Name": "Mayo Clinic",
+  "Business Email": "sarah.chen@mayoclinic.org",
+  "Website": "mayoclinic.org",
+  "Industry": null,
   "Captured URL": null,
   "LinkedIn URL": null,
   "Employee Count": null,
   "Estimate Revenue": null,
-  "City": null,
-  "State": null,
+  "City": "Rochester",
+  "State": "MN",
   "Zipcode": null,
   "Seen At": null,
   "Referrer": null,
@@ -225,12 +225,12 @@ function getResultMessage(res: WebhookResponse): ResultMessage {
 export default function IcpDemo() {
   const [tab, setTab] = useState<"form" | "json">("form");
   const [form, setForm] = useState({
-    "First Name": "Adam",
-    "Last Name": "Test Payload",
-    "Company Name": "RB2B",
-    "Business Email": "test@test.com",
-    "Website": "https://rb2b.com",
-    "Industry": "Internet Technology & Services",
+    "First Name": "Sarah",
+    "Last Name": "Chen",
+    "Company Name": "Mayo Clinic",
+    "Business Email": "sarah.chen@mayoclinic.org",
+    "Website": "mayoclinic.org",
+    "Industry": "",
     "Captured URL": "",
   });
   const [rawJson, setRawJson] = useState(
