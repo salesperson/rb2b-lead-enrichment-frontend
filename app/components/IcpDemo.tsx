@@ -26,13 +26,10 @@ const NULL_FIELDS = {
   "LinkedIn URL": null,
   "Employee Count": null,
   "Estimate Revenue": null,
-  "City": null,
-  "State": null,
   "Zipcode": null,
   "Seen At": null,
   "Referrer": null,
   "Tags": null,
-  "Title": "",
 };
 
 type ResponseStatus = "ok" | "rejected" | "error";
@@ -225,13 +222,14 @@ function getResultMessage(res: WebhookResponse): ResultMessage {
 export default function IcpDemo() {
   const [tab, setTab] = useState<"form" | "json">("form");
   const [form, setForm] = useState({
-    "First Name": "Sarah",
-    "Last Name": "Chen",
-    "Company Name": "Mayo Clinic",
-    "Business Email": "sarah.chen@mayoclinic.org",
-    "Website": "mayoclinic.org",
-    "Industry": "",
-    "Captured URL": "",
+    "Business Email": "chris.miller@epic.com",
+    "First Name": "Chris",
+    "Last Name": "Miller",
+    "Title": "Implementation Consultant",
+    "Company Name": "Epic Systems",
+    "Website": "epic.com",
+    "City": "Verona",
+    "State": "WI",
   });
   const [rawJson, setRawJson] = useState(
     JSON.stringify(SAMPLE_PAYLOAD, null, 2)
@@ -245,13 +243,14 @@ export default function IcpDemo() {
 
   function buildFormPayload() {
     return {
+      "Business Email": form["Business Email"] || null,
       "First Name": form["First Name"] || null,
       "Last Name": form["Last Name"] || null,
+      "Title": form["Title"] || null,
       "Company Name": form["Company Name"] || null,
-      "Business Email": form["Business Email"] || null,
       "Website": form["Website"] || null,
-      "Industry": form["Industry"] || null,
-      "Captured URL": form["Captured URL"] || null,
+      "City": form["City"] || null,
+      "State": form["State"] || null,
       ...NULL_FIELDS,
     };
   }
@@ -375,18 +374,19 @@ export default function IcpDemo() {
               <div className="grid grid-cols-2 gap-4">
                 {(
                   [
+                    "Business Email",
                     "First Name",
                     "Last Name",
+                    "Title",
                     "Company Name",
-                    "Business Email",
                     "Website",
-                    "Industry",
-                    "Captured URL",
+                    "City",
+                    "State",
                   ] as const
                 ).map((field) => (
                   <div
                     key={field}
-                    className={field === "Captured URL" || field === "Industry" ? "col-span-2" : ""}
+                    className={field === "Business Email" || field === "Title" || field === "Company Name" || field === "Website" ? "col-span-2" : ""}
                   >
                     <label className="block text-xs font-medium text-gray-600 mb-1">
                       {field}
