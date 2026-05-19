@@ -45,15 +45,56 @@ type RejectReason =
   | "Airtable Write Failed"
   | null;
 
-type PathValue = "cache_hit" | "edu→websearch" | "enrichment→verification" | "fallback→websearch" | null;
+type PathValue = "cache_hit" | "edu_domain" | "gpt" | null;
+
+type LabType =
+  | "hospital_lab" | "physician_office_lab" | "reference_lab"
+  | "urgent_care_or_retail_clinic" | "specialty_clinic" | "veterinary"
+  | "public_health_lab" | "research_or_academic_lab" | "toxicology_or_drug_testing_lab"
+  | "blood_bank_or_donor_center" | "occupational_health"
+  | "equipment_distributor_or_reseller" | "other_healthcare"
+  | "not_a_lab_buyer" | "unclear" | null;
+
+type CliaComplexity = "waived" | "moderate_or_high" | "unknown" | null;
+type Confidence = "high" | "medium" | "low" | null;
 
 interface WebhookResponse {
   status: ResponseStatus;
   reason: RejectReason;
-  explanation?: string | null;
   path?: PathValue;
+  lab_type?: LabType;
+  clia_complexity?: CliaComplexity;
+  confidence?: Confidence;
+  evidence?: string | null;
+  evidence_url?: string | null;
+  company_description?: string | null;
+  explanation?: string | null;
   verification?: Record<string, unknown> | null;
 }
+
+const LAB_TYPE_LABELS: Record<NonNullable<LabType>, string> = {
+  hospital_lab:                      "Hospital / Health System Lab",
+  physician_office_lab:              "Physician Office Lab",
+  reference_lab:                     "Reference / Commercial Lab",
+  urgent_care_or_retail_clinic:      "Urgent Care / Retail Clinic",
+  specialty_clinic:                  "Specialty Clinic",
+  veterinary:                        "Veterinary",
+  public_health_lab:                 "Public Health Lab",
+  research_or_academic_lab:          "Research / Academic Lab",
+  toxicology_or_drug_testing_lab:    "Toxicology / Drug Testing Lab",
+  blood_bank_or_donor_center:        "Blood Bank / Donor Center",
+  occupational_health:               "Occupational Health",
+  equipment_distributor_or_reseller: "Equipment Distributor (not end-user)",
+  other_healthcare:                  "Other Healthcare",
+  not_a_lab_buyer:                   "Not a Lab Buyer",
+  unclear:                           "Unclear",
+};
+
+const CLIA_LABELS: Record<NonNullable<CliaComplexity>, string> = {
+  waived:           "Waived (point-of-care only)",
+  moderate_or_high: "Moderate / High Complexity",
+  unknown:          "Unknown",
+};
 
 interface ResultMessage {
   icon: string;
@@ -80,10 +121,11 @@ function getPipelineState(res: WebhookResponse | null): NodeState[] {
     case "Not ICP":
     case "Websearch Failed":
     case "Company Not Found":
-                             return ["green", "green", "red",   "gray"];
+      return ["green", "green", "red",   "gray"];
     case "Airtable Write Failed":
-                             return ["green", "green", "green", "red"];
-    default:                 return ["gray",  "gray",  "gray",  "gray"];
+      return ["green", "green", "green", "red"];
+    default:
+      return ["gray",  "gray",  "gray",  "gray"];
   }
 }
 
@@ -96,28 +138,23 @@ function getSubNodes(path: PathValue, node3State: NodeState): [SubNodeInfo, SubN
   switch (path) {
     case "cache_hit":
       return [
-        { label: "Redis Cache Hit", color: "green" },
-        { label: "Skipped",         color: "gray"  },
+        { label: "Cache Hit", color: "green" },
+        { label: "Skipped",   color: "gray"  },
       ];
-    case "edu→websearch":
+    case "edu_domain":
       return [
-        { label: ".edu Domain",    color: "green"      },
-        { label: "LLM Web Search", color: node3State   },
+        { label: ".edu Auto-Pass", color: "green" },
+        { label: "Skipped",        color: "gray"  },
       ];
-    case "enrichment→verification":
+    case "gpt":
       return [
-        { label: "Enrichment",  color: "green"    },
-        { label: "ICP Verification", color: node3State },
-      ];
-    case "fallback→websearch":
-      return [
-        { label: "Enrichers Missed", color: "red"       },
-        { label: "Web Search",   color: node3State  },
+        { label: "Web Search",    color: "green"     },
+        { label: "LLM Classifier", color: node3State },
       ];
     default:
       return [
-        { label: "Enricher",       color: "gray" },
-        { label: "LLM Classifier", color: "gray" },
+        { label: "Lookup",          color: "gray" },
+        { label: "GPT Web Search",  color: "gray" },
       ];
   }
 }
@@ -200,6 +237,7 @@ export default function IcpDemo() {
     JSON.stringify(SAMPLE_PAYLOAD, null, 2)
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [testMode, setTestMode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebhookResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -234,6 +272,8 @@ export default function IcpDemo() {
     } else {
       payload = buildFormPayload();
     }
+
+    if (testMode) payload["Is Test Email"] = true;
 
     setLoading(true);
     try {
@@ -378,10 +418,20 @@ export default function IcpDemo() {
               </div>
             )}
 
+            <label className="mt-4 flex items-center gap-2 cursor-pointer select-none w-fit">
+              <input
+                type="checkbox"
+                checked={testMode}
+                onChange={(e) => setTestMode(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-600">Skip Email Verification</span>
+            </label>
+
             <button
               onClick={handleSubmit}
               disabled={loading}
-              className="mt-5 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
             >
               {loading ? "Submitting..." : "Submit"}
             </button>
@@ -389,56 +439,105 @@ export default function IcpDemo() {
         </div>
 
         {/* Result panel */}
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm min-h-[120px] flex items-center justify-center p-6">
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm min-h-[120px] p-6">
           {loading && (
             <div className="flex flex-col items-center gap-3 text-gray-400">
-              <svg
-                className="animate-spin h-8 w-8"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8H4z"
-                />
+              <svg className="animate-spin h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
               <span className="text-sm">Classifying lead... this may take up to 15 seconds</span>
             </div>
           )}
 
           {!loading && fetchError && (
-            <div className="w-full border rounded-lg p-4 text-red-700 bg-red-50 border-red-200">
+            <div className="border rounded-lg p-4 text-red-700 bg-red-50 border-red-200">
               <p className="font-medium">💥 Network Error</p>
               <p className="text-sm mt-1">{fetchError}</p>
             </div>
           )}
 
-          {!loading && !fetchError && result && msg && (
-            <div className={`w-full border rounded-lg p-4 ${msg.color}`}>
-              <p className="font-semibold text-base">
-                {msg.icon} {msg.title}
-              </p>
-              <p className="text-sm mt-1">{msg.body}</p>
-              {result.explanation && (
-                <p className="text-sm mt-3 pt-3 border-t border-current border-opacity-20 italic">
-                  {result.explanation}
-                </p>
-              )}
-            </div>
-          )}
+          {!loading && !fetchError && result && msg && (() => {
+            const isClassified = result.status === "ok" || result.reason === "Not ICP";
+            if (isClassified) {
+              const passed = result.status === "ok";
+              return (
+                <div>
+                  {/* Status badge */}
+                  <div className="flex items-center gap-3 mb-4">
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      {passed ? "✅ PASSED" : "⛔ REJECTED"}
+                    </span>
+                    {!passed && result.reason && (
+                      <span className="text-sm text-gray-500">{result.reason}</span>
+                    )}
+                  </div>
+
+                  {/* Company description */}
+                  {result.company_description && (
+                    <p className="text-sm text-gray-700 mb-4">{result.company_description}</p>
+                  )}
+
+                  {/* Classification fields */}
+                  <dl className="space-y-2">
+                    {result.lab_type && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Lab Type</dt>
+                        <dd className="text-sm text-gray-900">{LAB_TYPE_LABELS[result.lab_type]}</dd>
+                      </div>
+                    )}
+                    {result.clia_complexity && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">CLIA Complexity</dt>
+                        <dd className="text-sm text-gray-900">{CLIA_LABELS[result.clia_complexity]}</dd>
+                      </div>
+                    )}
+                    {result.confidence && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Confidence</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{result.confidence}</dd>
+                      </div>
+                    )}
+                    {result.evidence && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Evidence</dt>
+                        <dd className="text-sm text-gray-900">{result.evidence}</dd>
+                      </div>
+                    )}
+                    {result.evidence_url && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Source</dt>
+                        <dd className="text-sm">
+                          <a href={result.evidence_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                            {result.evidence_url}
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                    {result.explanation && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Explanation</dt>
+                        <dd className="text-sm text-gray-900 italic">{result.explanation}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </div>
+              );
+            }
+
+            // Non-classified rejections (webmail, undeliverable, etc.)
+            return (
+              <div className={`border rounded-lg p-4 ${msg.color}`}>
+                <p className="font-semibold text-base">{msg.icon} {msg.title}</p>
+                <p className="text-sm mt-1">{msg.body}</p>
+              </div>
+            );
+          })()}
 
           {!loading && !fetchError && !result && (
-            <p className="text-sm text-gray-400">Results will appear here after submission.</p>
+            <div className="flex items-center justify-center h-full min-h-[72px]">
+              <p className="text-sm text-gray-400">Results will appear here after submission.</p>
+            </div>
           )}
         </div>
         </div>{/* end left column */}
@@ -448,16 +547,26 @@ export default function IcpDemo() {
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-5">Pipeline</p>
 
-            {/* Nodes 1 & 2 */}
-            {[0, 1].map((i) => (
-              <div key={i} className="flex gap-3">
-                <div className="flex flex-col items-center w-7 flex-shrink-0">
-                  <NodeCircle state={pipelineState[i]} index={i + 1} />
-                  <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[i]]}`} />
-                </div>
-                <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[i]}</p>
+            {/* Node 1 */}
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center w-7 flex-shrink-0">
+                <NodeCircle state={pipelineState[0]} index={1} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[0]]}`} />
               </div>
-            ))}
+              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[0]}</p>
+            </div>
+
+            {/* Node 2 — dimmed when test mode is on */}
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center w-7 flex-shrink-0">
+                <NodeCircle state={testMode ? "gray" : pipelineState[1]} index={2} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[testMode ? "gray" : pipelineState[1]]}`} />
+              </div>
+              <div className="pt-1">
+                <p className={`text-sm ${testMode ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[1]}</p>
+                {testMode && <p className="text-xs text-gray-400 leading-tight">Skipped (test mode)</p>}
+              </div>
+            </div>
 
             {/* Node 3 with sub-nodes */}
             <div className="flex gap-3">
