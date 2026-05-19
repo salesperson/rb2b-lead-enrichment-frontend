@@ -238,6 +238,7 @@ export default function IcpDemo() {
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [testMode, setTestMode] = useState(false);
+  const [disableCache, setDisableCache] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebhookResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -274,6 +275,7 @@ export default function IcpDemo() {
     }
 
     if (testMode) payload["Is Test Email"] = true;
+    if (disableCache) payload["Disable Cache"] = true;
 
     setLoading(true);
     try {
@@ -426,6 +428,15 @@ export default function IcpDemo() {
                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <span className="text-sm text-gray-600">Skip Email Verification</span>
+            </label>
+            <label className="mt-2 flex items-center gap-2 cursor-pointer select-none w-fit">
+              <input
+                type="checkbox"
+                checked={disableCache}
+                onChange={(e) => setDisableCache(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-600">Disable Cache</span>
             </label>
 
             <button
