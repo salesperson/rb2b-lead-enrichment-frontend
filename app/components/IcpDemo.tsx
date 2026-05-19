@@ -107,9 +107,9 @@ type NodeState = "gray" | "green" | "red";
 
 const PIPELINE_NODES = [
   "Email Check",
-  "Hunter Verification",
+  "Email Verification",
   "ICP Classification",
-  "Airtable Write",
+  "Database Upload",
 ];
 
 function getPipelineState(res: WebhookResponse | null): NodeState[] {
@@ -154,7 +154,7 @@ function getSubNodes(path: PathValue, node3State: NodeState): [SubNodeInfo, SubN
     default:
       return [
         { label: "Lookup",          color: "gray" },
-        { label: "GPT Web Search",  color: "gray" },
+        { label: "LLM Classifier",  color: "gray" },
       ];
   }
 }
