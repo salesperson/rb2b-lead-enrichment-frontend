@@ -58,6 +58,8 @@ interface WebhookResponse {
   reason?: RejectReason;
   path?: PathValue;
   // ok response
+  lead_id?: string | null;
+  lead_type?: "person" | "company" | null;
   classification?: Classification | null;
   title_meta?: TitleMeta | null;
   verification?: { data?: VerificationData } | null;
@@ -103,6 +105,22 @@ const CLIA_LABELS: Record<NonNullable<CliaComplexity>, string> = {
   unknown:          "Unknown",
 };
 
+interface PollContact {
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  email?: string;
+  company?: string;
+  productViewed?: string;
+}
+
+interface PollData {
+  status: string;
+  leadName: string;
+  contacts?: PollContact[];
+  error?: string;
+}
+
 type NodeState = "gray" | "green" | "red" | "skipped" | "suppressed";
 
 const PIPELINE_NODES = [
@@ -115,6 +133,7 @@ const PIPELINE_NODES = [
 ];
 
 function derivePersonLead(res: WebhookResponse | null, form: Record<string, string>): boolean {
+  if (res?.lead_type) return res.lead_type === "person";
   if (res) {
     if (res.title_meta?.relevance != null) return true;
     if (res.reason === "No Email" || res.reason === "Is Webmail" || res.reason === "Not Deliverable") return true;
@@ -294,6 +313,10 @@ export default function IcpDemo() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebhookResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [pollLeadId, setPollLeadId] = useState("");
+  const [pollLoading, setPollLoading] = useState(false);
+  const [pollResult, setPollResult] = useState<PollData | null>(null);
+  const [pollNotFound, setPollNotFound] = useState(false);
 
   function buildFormPayload() {
     return {
@@ -339,12 +362,104 @@ export default function IcpDemo() {
       const data: WebhookResponse = await res.json();
       console.log("[webhook response]", data);
       setResult(data);
+      if (data.lead_id) {
+        setPollLeadId(data.lead_id);
+        setPollResult(null);
+        setPollNotFound(false);
+      }
     } catch (err) {
       setFetchError(
         err instanceof Error ? err.message : "Network error — is the server running?"
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePoll() {
+    setPollResult(null);
+    setPollNotFound(false);
+    setPollLoading(true);
+
+    const BASE = "appDFn5WzxYDE1XZ2";
+    const TOKEN = "pat7pcmqymMaUvzBu.2bb61fe3f13ff9c05c53066e2567923f30089a520734dd8ae3a12d61dd1f221c";
+    const PERSON_TABLE = "tbluNe2GmzzqoO8q4";
+    const COMPANY_TABLE = "tbl27GnLhajzV58q4";
+    const STAKEHOLDERS_TABLE = "tblAw9EB5ZOf0hNdS";
+    const CONTACTS_TABLE = "tblt3ZOcdiw4BCFg2";
+
+    const isPerson = result?.lead_type === "person";
+    const tableId = isPerson ? PERSON_TABLE : COMPANY_TABLE;
+    const formula = encodeURIComponent(`{Lead ID}="${pollLeadId.trim()}"`);
+
+    try {
+      const res = await fetch(
+        `https://api.airtable.com/v0/${BASE}/${tableId}?filterByFormula=${formula}`,
+        { headers: { Authorization: `Bearer ${TOKEN}` } }
+      );
+      const data = await res.json();
+
+      if (!data.records || data.records.length === 0) {
+        setPollNotFound(true);
+        return;
+      }
+
+      const fields = data.records[0].fields as Record<string, unknown>;
+      const rawStatus = (fields["Status"] as string) ?? "Unknown";
+      const status = rawStatus === "Queued" ? "Enrichment in Progress" : rawStatus;
+      const leadName = isPerson
+        ? [fields["First Name"], fields["Last Name"]].filter(Boolean).join(" ") || "Unknown"
+        : ((fields["Company Name"] ?? fields["Name"] ?? fields["Company"]) as string) ?? "Unknown";
+
+      if (status !== "Contact Found") {
+        setPollResult({ status, leadName });
+        return;
+      }
+
+      const linkedIds = (isPerson ? fields["Stakeholders"] : fields["Contacts"]) as string[] ?? [];
+
+      if (linkedIds.length === 0) {
+        setPollResult({ status, leadName, contacts: [] });
+        return;
+      }
+
+      const linkedTable = isPerson ? STAKEHOLDERS_TABLE : CONTACTS_TABLE;
+      const idsFormula = encodeURIComponent(
+        `OR(${linkedIds.map((id) => `RECORD_ID()="${id}"`).join(",")})`
+      );
+
+      const linkedRes = await fetch(
+        `https://api.airtable.com/v0/${BASE}/${linkedTable}?filterByFormula=${idsFormula}`,
+        { headers: { Authorization: `Bearer ${TOKEN}` } }
+      );
+      const linkedData = await linkedRes.json();
+
+      const contacts: PollContact[] = (linkedData.records ?? []).map(
+        (r: { fields: Record<string, unknown> }) => {
+          const f = r.fields;
+          return isPerson
+            ? {
+                firstName: f["First Name"] as string,
+                lastName: (f["Last Name"] ?? f["Lastname"]) as string,
+                title: f["Title"] as string,
+                email: f["Email"] as string,
+                company: f["Company"] as string,
+              }
+            : {
+                firstName: f["First Name"] as string,
+                lastName: (f["Last Name"] ?? f["Lastname"]) as string,
+                title: f["Title"] as string,
+                email: f["Email"] as string,
+                productViewed: f["Product Viewed"] as string,
+              };
+        }
+      );
+
+      setPollResult({ status, leadName, contacts });
+    } catch (err) {
+      setPollResult({ status: "Error", leadName: "", error: err instanceof Error ? err.message : "Network error" });
+    } finally {
+      setPollLoading(false);
     }
   }
 
@@ -696,6 +811,93 @@ export default function IcpDemo() {
             </div>
           )}
         </div>
+
+        {/* Poll Record card — only shown when lead_id is present */}
+        {result?.lead_id && (
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Poll Record</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={pollLeadId}
+                onChange={(e) => setPollLeadId(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                onClick={handlePoll}
+                disabled={pollLoading || !pollLeadId.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {pollLoading ? "Polling…" : "Poll Record"}
+              </button>
+            </div>
+
+            {pollNotFound && (
+              <p className="mt-3 text-sm text-gray-500">Record not found yet — try again in a moment.</p>
+            )}
+
+            {pollResult?.error && (
+              <p className="mt-3 text-sm text-red-600">{pollResult.error}</p>
+            )}
+
+            {pollResult && !pollResult.error && (() => {
+              const statusColors: Record<string, string> = {
+                "New":           "bg-blue-100 text-blue-700",
+                "Contact Found": "bg-teal-100 text-teal-700",
+                "No Match":      "bg-gray-100 text-gray-500",
+                "Enrichment in Progress": "bg-purple-100 text-purple-700",
+              };
+              const badgeClass = statusColors[pollResult.status] ?? "bg-gray-100 text-gray-500";
+
+              return (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeClass}`}>
+                      {pollResult.status}
+                    </span>
+                    <span className="text-sm text-gray-800 font-medium">{pollResult.leadName}</span>
+                  </div>
+
+                  {pollResult.contacts && pollResult.contacts.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="px-3 py-2 text-left font-medium text-gray-500">Name</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-500">Title</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-500">Email</th>
+                            <th className="px-3 py-2 text-left font-medium text-gray-500">
+                              {result?.lead_type === "person" ? "Company" : "Product"}
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pollResult.contacts.map((c, i) => (
+                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                              <td className="px-3 py-2 text-gray-800">
+                                {[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">{c.title ?? "—"}</td>
+                              <td className="px-3 py-2 text-gray-600">{c.email ?? "—"}</td>
+                              <td className="px-3 py-2 text-gray-600">
+                                {result?.lead_type === "person" ? (c.company ?? "—") : (c.productViewed ?? "—")}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {pollResult.contacts?.length === 0 && (
+                    <p className="text-xs text-gray-400">No linked contacts found.</p>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         </div>{/* end left column */}
 
         {/* Right column — Pipeline */}
