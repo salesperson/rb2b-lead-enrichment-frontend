@@ -114,7 +114,12 @@ const PIPELINE_NODES = [
   "Database Upload",
 ];
 
-function isPersonLead(form: Record<string, string>): boolean {
+function derivePersonLead(res: WebhookResponse | null, form: Record<string, string>): boolean {
+  if (res) {
+    if (res.title_meta?.relevance != null) return true;
+    if (res.reason === "No Email" || res.reason === "Is Webmail" || res.reason === "Not Deliverable") return true;
+    if (res.status === "ok" || res.status === "suppressed") return false;
+  }
   return !!(form["First Name"] || form["Last Name"] || form["Business Email"] || form["Title"]);
 }
 
@@ -344,7 +349,7 @@ export default function IcpDemo() {
   }
 
   const msg = result ? getResultMessage(result) : null;
-  const personLead = isPersonLead(form);
+  const personLead = derivePersonLead(loading ? null : result, form);
   const pipelineState = getPipelineState(loading ? null : result, personLead);
   const [icpSub1, icpSub2] = getIcpSubNodes(result?.path ?? null, pipelineState[3]);
 
@@ -780,7 +785,7 @@ export default function IcpDemo() {
                 ].map(({ label, active }) => (
                   <div key={label} className="flex gap-2 ml-1 mb-2">
                     <div className="flex flex-col items-center w-5 flex-shrink-0">
-                      <SubCircle state="gray" />
+                      <SubCircle state={active && pipelineState[5] === "green" ? "green" : "gray"} />
                     </div>
                     <p className={`text-xs pt-0.5 leading-tight ${!active && result ? "text-gray-300 line-through" : "text-gray-600"}`}>
                       {label}
