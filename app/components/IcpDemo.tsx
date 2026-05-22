@@ -2,45 +2,17 @@
 
 import { useState } from "react";
 
-const SAMPLE_PAYLOAD = {
-  "First Name": "Sarah",
-  "Last Name": "Chen",
-  "Title": "Laboratory Director",
-  "Company Name": "Mayo Clinic",
-  "Business Email": "sarah.chen@mayoclinic.org",
-  "Website": "mayoclinic.org",
-  "Industry": null,
-  "Captured URL": null,
-  "LinkedIn URL": null,
-  "Employee Count": null,
-  "Estimate Revenue": null,
-  "City": "Rochester",
-  "State": "MN",
-  "Zipcode": null,
-  "Seen At": null,
-  "Referrer": null,
-  "Tags": null,
-};
 
-const NULL_FIELDS = {
-  "LinkedIn URL": null,
-  "Employee Count": null,
-  "Estimate Revenue": null,
-  "Zipcode": null,
-  "Seen At": null,
-  "Referrer": null,
-  "Tags": null,
-};
+type ResponseStatus = "ok" | "rejected" | "suppressed" | "error";
 
-type ResponseStatus = "ok" | "rejected" | "error";
 type RejectReason =
-  | "Not ICP"
-  | "Not Deliverable"
+  | "International TLD"
+  | "No Email"
   | "Is Webmail"
-  | "Company Not Found"
+  | "Not Deliverable"
+  | "Not ICP"
   | "Websearch Failed"
   | "Airtable Write Failed"
-  | "Not Relevant Title"
   | null;
 
 type PathValue = "cache_hit" | "edu_domain" | "gpt" | null;
@@ -55,11 +27,41 @@ type LabType =
 
 type CliaComplexity = "waived" | "moderate_or_high" | "unknown" | null;
 type Confidence = "high" | "medium" | "low" | null;
+type TitleRelevance = "decision_maker" | "influencer" | "not_relevant" | "unknown" | null;
+
+interface Classification {
+  lab_type?: LabType;
+  clia_complexity?: CliaComplexity;
+  confidence?: Confidence;
+  evidence?: string | null;
+  evidence_url?: string | null;
+  company_description?: string | null;
+}
+
+interface TitleMeta {
+  relevance?: TitleRelevance;
+  function?: string | null;
+  normalized_title?: string | null;
+  title_reason?: string | null;
+}
+
+interface VerificationData {
+  status?: string;
+  score?: number;
+  email?: string;
+  webmail?: boolean;
+  result?: string;
+}
 
 interface WebhookResponse {
   status: ResponseStatus;
-  reason: RejectReason;
+  reason?: RejectReason;
   path?: PathValue;
+  // ok response
+  classification?: Classification | null;
+  title_meta?: TitleMeta | null;
+  verification?: { data?: VerificationData } | null;
+  // rejected (Not ICP) — flat classification fields
   lab_type?: LabType;
   clia_complexity?: CliaComplexity;
   confidence?: Confidence;
@@ -67,11 +69,14 @@ interface WebhookResponse {
   evidence_url?: string | null;
   company_description?: string | null;
   explanation?: string | null;
-  relevance?: string | null;
-  function?: string | null;
-  normalized_title?: string | null;
-  title_reason?: string | null;
-  verification?: Record<string, unknown> | null;
+  // suppressed
+  company_name?: string | null;
+  customer_id?: string | null;
+  sales_rep?: string | null;
+  sales_rep_source?: string | null;
+  has_quote?: boolean;
+  has_order?: boolean;
+  ordertime_url?: string | null;
 }
 
 const LAB_TYPE_LABELS: Record<NonNullable<LabType>, string> = {
@@ -98,16 +103,10 @@ const CLIA_LABELS: Record<NonNullable<CliaComplexity>, string> = {
   unknown:          "Unknown",
 };
 
-interface ResultMessage {
-  icon: string;
-  title: string;
-  body: string;
-  color: string;
-}
-
-type NodeState = "gray" | "green" | "red";
+type NodeState = "gray" | "green" | "red" | "skipped" | "suppressed";
 
 const PIPELINE_NODES = [
+  "OrderTime Check",
   "Domain Check",
   "Deliverability Check",
   "ICP Classification",
@@ -115,22 +114,39 @@ const PIPELINE_NODES = [
   "Database Upload",
 ];
 
-function getPipelineState(res: WebhookResponse | null): NodeState[] {
-  if (!res) return ["gray", "gray", "gray", "gray", "gray"];
-  if (res.status === "ok") return ["green", "green", "green", "green", "green"];
+function isPersonLead(form: Record<string, string>): boolean {
+  return !!(form["First Name"] || form["Last Name"] || form["Business Email"] || form["Title"]);
+}
+
+function getPipelineState(
+  res: WebhookResponse | null,
+  personLead: boolean
+): NodeState[] {
+  const skip: NodeState = "skipped";
+  const g: NodeState = "green";
+  const r: NodeState = "red";
+  const gray: NodeState = "gray";
+
+  if (!res) return [gray, gray, personLead ? gray : skip, gray, personLead ? gray : skip, gray];
+
+  if (res.status === "suppressed") return ["suppressed", gray, personLead ? gray : skip, gray, personLead ? gray : skip, gray];
+
+  if (res.status === "ok") return [g, g, personLead ? g : skip, g, personLead ? g : skip, g];
+
   switch (res.reason) {
-    case "Is Webmail":       return ["red",   "gray",  "gray",  "gray",  "gray"];
-    case "Not Deliverable":  return ["green", "red",   "gray",  "gray",  "gray"];
+    case "International TLD":
+      return [g, r, personLead ? gray : skip, gray, personLead ? gray : skip, gray];
+    case "No Email":
+    case "Is Webmail":
+    case "Not Deliverable":
+      return [g, g, personLead ? r : skip, gray, personLead ? gray : skip, gray];
     case "Not ICP":
     case "Websearch Failed":
-    case "Company Not Found":
-      return ["green", "green", "red",   "gray",  "gray"];
-    case "Not Relevant Title":
-      return ["green", "green", "green", "red",   "gray"];
+      return [g, g, personLead ? g : skip, r, personLead ? gray : skip, gray];
     case "Airtable Write Failed":
-      return ["green", "green", "green", "green", "red"];
+      return [g, g, personLead ? g : skip, g, personLead ? g : skip, r];
     default:
-      return ["gray",  "gray",  "gray",  "gray",  "gray"];
+      return [gray, gray, personLead ? gray : skip, gray, personLead ? gray : skip, gray];
   }
 }
 
@@ -139,12 +155,12 @@ interface SubNodeInfo {
   color: NodeState;
 }
 
-function getSubNodes(path: PathValue, node3State: NodeState): [SubNodeInfo, SubNodeInfo] {
+function getIcpSubNodes(path: PathValue, icpState: NodeState): [SubNodeInfo, SubNodeInfo] {
   switch (path) {
     case "cache_hit":
       return [
-        { label: "Cache Hit", color: "green" },
-        { label: "Skipped",   color: "gray"  },
+        { label: "Cache Lookup",  color: "green" },
+        { label: "Skipped",       color: "gray"  },
       ];
     case "edu_domain":
       return [
@@ -153,24 +169,33 @@ function getSubNodes(path: PathValue, node3State: NodeState): [SubNodeInfo, SubN
       ];
     case "gpt":
       return [
-        { label: "Web Search",    color: "green"     },
-        { label: "LLM Classifier", color: node3State },
+        { label: "Cache Lookup",   color: "green"   },
+        { label: "LLM Classifier", color: icpState  },
       ];
     default:
       return [
-        { label: "Lookup",          color: "gray" },
-        { label: "LLM Classifier",  color: "gray" },
+        { label: "Cache Lookup",   color: "gray" },
+        { label: "LLM Classifier", color: "gray" },
       ];
   }
 }
 
-function getResultMessage(res: WebhookResponse): ResultMessage {
+
+function getResultMessage(res: WebhookResponse): { icon: string; title: string; body: string; color: string } {
   if (res.status === "ok") {
     return {
       icon: "✅",
       title: "ICP Pass",
       body: "This lead passed all filters and was sent to Airtable.",
       color: "text-green-700 bg-green-50 border-green-200",
+    };
+  }
+  if (res.status === "suppressed") {
+    return {
+      icon: "🛑",
+      title: "Existing Customer",
+      body: `${res.company_name ?? "This company"} is already a customer.`,
+      color: "text-amber-700 bg-amber-50 border-amber-200",
     };
   }
   if (res.status === "rejected") {
@@ -196,26 +221,26 @@ function getResultMessage(res: WebhookResponse): ResultMessage {
           body: "We only accept business email addresses (no Gmail, Yahoo, etc.).",
           color: "text-orange-700 bg-orange-50 border-orange-200",
         };
+      case "International TLD":
+        return {
+          icon: "🚫",
+          title: "International domain",
+          body: "We currently only process leads from supported regions.",
+          color: "text-orange-700 bg-orange-50 border-orange-200",
+        };
+      case "No Email":
+        return {
+          icon: "🚫",
+          title: "No email address",
+          body: "A business email is required to process this lead.",
+          color: "text-orange-700 bg-orange-50 border-orange-200",
+        };
       case "Websearch Failed":
         return {
           icon: "⚠️",
           title: "Could not classify",
           body: "We were unable to find enough information about this company to make a decision.",
           color: "text-yellow-700 bg-yellow-50 border-yellow-200",
-        };
-      case "Company Not Found":
-        return {
-          icon: "⚠️",
-          title: "Company not found",
-          body: "We could not find this company. Please check the website or company name.",
-          color: "text-yellow-700 bg-yellow-50 border-yellow-200",
-        };
-      case "Not Relevant Title":
-        return {
-          icon: "⛔",
-          title: "Title not relevant",
-          body: "This contact's job title is not relevant to lab purchasing decisions.",
-          color: "text-red-700 bg-red-50 border-red-200",
         };
       case "Airtable Write Failed":
         return {
@@ -246,8 +271,17 @@ export default function IcpDemo() {
     "City": "Verona",
     "State": "WI",
   });
-  const [rawJson, setRawJson] = useState(
-    JSON.stringify(SAMPLE_PAYLOAD, null, 2)
+  const [rawJson, setRawJson] = useState(() =>
+    JSON.stringify({
+      "Business Email": "chris.miller@epic.com",
+      "First Name": "Chris",
+      "Last Name": "Miller",
+      "Title": "Implementation Consultant",
+      "Company Name": "Epic Systems",
+      "Website": "epic.com",
+      "City": "Verona",
+      "State": "WI",
+    }, null, 2)
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [testMode, setTestMode] = useState(false);
@@ -266,7 +300,6 @@ export default function IcpDemo() {
       "Website": form["Website"] || null,
       "City": form["City"] || null,
       "State": form["State"] || null,
-      ...NULL_FIELDS,
     };
   }
 
@@ -311,24 +344,29 @@ export default function IcpDemo() {
   }
 
   const msg = result ? getResultMessage(result) : null;
-  const pipelineState = getPipelineState(loading ? null : result);
-  const [sub31, sub32] = getSubNodes(result?.path ?? null, pipelineState[2]);
+  const personLead = isPersonLead(form);
+  const pipelineState = getPipelineState(loading ? null : result, personLead);
+  const [icpSub1, icpSub2] = getIcpSubNodes(result?.path ?? null, pipelineState[3]);
 
   const nodeColor: Record<NodeState, string> = {
-    gray:  "bg-gray-200 border-gray-300 text-gray-400",
-    green: "bg-green-500 border-green-600 text-white",
-    red:   "bg-red-500 border-red-600 text-white",
+    gray:       "bg-gray-200 border-gray-300 text-gray-400",
+    green:      "bg-green-500 border-green-600 text-white",
+    red:        "bg-red-500 border-red-600 text-white",
+    skipped:    "bg-gray-100 border-gray-200 text-gray-300",
+    suppressed: "bg-amber-400 border-amber-500 text-white",
   };
   const lineColor: Record<NodeState, string> = {
-    gray:  "bg-gray-200",
-    green: "bg-green-500",
-    red:   "bg-gray-200",
+    gray:       "bg-gray-200",
+    green:      "bg-green-500",
+    red:        "bg-gray-200",
+    skipped:    "bg-gray-100",
+    suppressed: "bg-gray-200",
   };
 
   function NodeCircle({ state, index }: { state: NodeState; index: number }) {
     return (
       <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-xs font-bold transition-colors duration-300 ${nodeColor[state]}`}>
-        {state === "green" ? "✓" : state === "red" ? "✕" : index}
+        {state === "green" ? "✓" : state === "red" ? "✕" : state === "suppressed" ? "!" : index}
       </div>
     );
   }
@@ -373,7 +411,7 @@ export default function IcpDemo() {
               Form
             </button>
             <button
-              onClick={() => setTab("json")}
+              onClick={() => { setRawJson(JSON.stringify(buildFormPayload(), null, 2)); setTab("json"); }}
               className={`px-5 py-3 text-sm font-medium transition-colors ${
                 tab === "json"
                   ? "text-blue-600 border-b-2 border-blue-600 bg-white"
@@ -484,71 +522,48 @@ export default function IcpDemo() {
           )}
 
           {!loading && !fetchError && result && msg && (() => {
-            const isClassified = result.status === "ok" || result.reason === "Not ICP";
-            const isTitleRejected = result.reason === "Not Relevant Title";
-            if (isClassified) {
-              const passed = result.status === "ok";
+            // Suppressed — existing customer
+            if (result.status === "suppressed") {
               return (
                 <div>
-                  {/* Status badge */}
                   <div className="flex items-center gap-3 mb-4">
-                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                      {passed ? "✅ PASSED" : "⛔ REJECTED"}
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-amber-100 text-amber-700">
+                      🛑 EXISTING CUSTOMER
                     </span>
-                    {!passed && result.reason && (
-                      <span className="text-sm text-gray-500">{result.reason}</span>
-                    )}
                   </div>
-
-                  {/* Path-specific notes */}
-                  {result.path === "edu_domain" && (
-                    <div className="mb-4 px-3 py-2 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm">
-                      .edu domain — educational institutions are auto-accepted.
-                    </div>
-                  )}
-                  {result.path === "cache_hit" && (
-                    <div className="mb-4 px-3 py-2 rounded-md bg-gray-50 border border-gray-200 text-gray-600 text-sm">
-                      Result served from cache — this company was previously classified.
-                    </div>
-                  )}
-
-                  {/* Company description */}
-                  {result.company_description && (
-                    <p className="text-sm text-gray-700 mb-4">{result.company_description}</p>
-                  )}
-
-                  {/* Classification fields */}
                   <dl className="space-y-2">
-                    {result.lab_type && (
+                    {result.company_name && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Lab Type</dt>
-                        <dd className="text-sm text-gray-900">{LAB_TYPE_LABELS[result.lab_type]}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Company</dt>
+                        <dd className="text-sm text-gray-900">{result.company_name}</dd>
                       </div>
                     )}
-                    {result.clia_complexity && (
+                    {result.sales_rep && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">CLIA Complexity</dt>
-                        <dd className="text-sm text-gray-900">{CLIA_LABELS[result.clia_complexity]}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Sales Rep</dt>
+                        <dd className="text-sm text-gray-900">{result.sales_rep}</dd>
                       </div>
                     )}
-                    {result.confidence && (
+                    {result.customer_id && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Confidence</dt>
-                        <dd className="text-sm text-gray-900 capitalize">{result.confidence}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Customer ID</dt>
+                        <dd className="text-sm text-gray-900">{result.customer_id}</dd>
                       </div>
                     )}
-                    {result.evidence && (
+                    {(result.has_quote || result.has_order) && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Evidence</dt>
-                        <dd className="text-sm text-gray-900">{result.evidence}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Activity</dt>
+                        <dd className="text-sm text-gray-900">
+                          {[result.has_quote && "Has quote", result.has_order && "Has order"].filter(Boolean).join(" · ")}
+                        </dd>
                       </div>
                     )}
-                    {result.evidence_url && (
+                    {result.ordertime_url && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-32 flex-shrink-0 pt-0.5">Source</dt>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Record</dt>
                         <dd className="text-sm">
-                          <a href={result.evidence_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
-                            {result.evidence_url}
+                          <a href={result.ordertime_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                            View in system
                           </a>
                         </dd>
                       </div>
@@ -558,38 +573,102 @@ export default function IcpDemo() {
               );
             }
 
-            if (isTitleRejected) {
+            // ok or Not ICP — show full classification card
+            const isClassified = result.status === "ok" || result.reason === "Not ICP";
+            if (isClassified) {
+              const passed = result.status === "ok";
+              // classification fields: nested on ok, flat on rejected Not ICP
+              const cls = result.classification ?? result;
+              const tm = result.title_meta;
+              const vd = result.verification?.data;
+              const titleNote = tm?.relevance === "not_relevant"
+                ? "Title not directly relevant — flagged for stakeholder discovery."
+                : null;
+
               return (
                 <div>
                   <div className="flex items-center gap-3 mb-4">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-700">
-                      ⛔ REJECTED
+                    <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                      {passed ? "✅ PASSED" : "⛔ REJECTED"}
                     </span>
-                    <span className="text-sm text-gray-500">Not Relevant Title</span>
+                    {!passed && result.reason && (
+                      <span className="text-sm text-gray-500">{result.reason}</span>
+                    )}
                   </div>
+
+                  {titleNote && (
+                    <div className="mb-4 px-3 py-2 rounded-md bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm">
+                      {titleNote}
+                    </div>
+                  )}
+
+                  {cls.company_description && (
+                    <p className="text-sm text-gray-700 mb-4">{cls.company_description}</p>
+                  )}
+
                   <dl className="space-y-2">
-                    {result.normalized_title && (
+                    {cls.lab_type && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Normalized Title</dt>
-                        <dd className="text-sm text-gray-900">{result.normalized_title}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Lab Type</dt>
+                        <dd className="text-sm text-gray-900">{LAB_TYPE_LABELS[cls.lab_type]}</dd>
                       </div>
                     )}
-                    {result.function && (
+                    {cls.clia_complexity && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Function</dt>
-                        <dd className="text-sm text-gray-900 capitalize">{result.function}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">CLIA Complexity</dt>
+                        <dd className="text-sm text-gray-900">{CLIA_LABELS[cls.clia_complexity]}</dd>
                       </div>
                     )}
-                    {result.relevance && (
+                    {cls.confidence && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Relevance</dt>
-                        <dd className="text-sm text-gray-900 capitalize">{result.relevance}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Confidence</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{cls.confidence}</dd>
                       </div>
                     )}
-                    {result.title_reason && (
+                    {cls.evidence && (
                       <div className="flex gap-2">
-                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Reason</dt>
-                        <dd className="text-sm text-gray-900">{result.title_reason}</dd>
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Evidence</dt>
+                        <dd className="text-sm text-gray-900">{cls.evidence}</dd>
+                      </div>
+                    )}
+                    {cls.evidence_url && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Source</dt>
+                        <dd className="text-sm">
+                          <a href={cls.evidence_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                            {cls.evidence_url}
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                    {result.explanation && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Explanation</dt>
+                        <dd className="text-sm text-gray-900 italic">{result.explanation}</dd>
+                      </div>
+                    )}
+                    {tm?.normalized_title && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Title</dt>
+                        <dd className="text-sm text-gray-900">{tm.normalized_title}</dd>
+                      </div>
+                    )}
+                    {tm?.relevance && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Title Relevance</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{tm.relevance.replace(/_/g, " ")}</dd>
+                      </div>
+                    )}
+                    {tm?.title_reason && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Title Reason</dt>
+                        <dd className="text-sm text-gray-900">{tm.title_reason}</dd>
+                      </div>
+                    )}
+                    {vd?.result && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Email Check</dt>
+                        <dd className="text-sm text-gray-900 capitalize">{vd.result}{vd.score != null ? ` (score: ${vd.score})` : ""}</dd>
                       </div>
                     )}
                   </dl>
@@ -597,7 +676,7 @@ export default function IcpDemo() {
               );
             }
 
-            // Non-classified rejections (webmail, undeliverable, etc.)
+            // Simple rejection (domain, no email, webmail, undeliverable) or error
             return (
               <div className={`border rounded-lg p-4 ${msg.color}`}>
                 <p className="font-semibold text-base">{msg.icon} {msg.title}</p>
@@ -619,7 +698,7 @@ export default function IcpDemo() {
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-5">Pipeline</p>
 
-            {/* Node 1 */}
+            {/* Node 1 — OrderTime Check */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
                 <NodeCircle state={pipelineState[0]} index={1} />
@@ -628,59 +707,87 @@ export default function IcpDemo() {
               <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[0]}</p>
             </div>
 
-            {/* Node 2 — dimmed when test mode is on */}
+            {/* Node 2 — Domain Check */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
-                <NodeCircle state={testMode ? "gray" : pipelineState[1]} index={2} />
-                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[testMode ? "gray" : pipelineState[1]]}`} />
+                <NodeCircle state={pipelineState[1]} index={2} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[1]]}`} />
+              </div>
+              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[1]}</p>
+            </div>
+
+            {/* Node 3 — Deliverability Check (skipped for company leads or test mode) */}
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center w-7 flex-shrink-0">
+                <NodeCircle state={testMode ? "skipped" : pipelineState[2]} index={3} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[testMode ? "skipped" : pipelineState[2]]}`} />
               </div>
               <div className="pt-1">
-                <p className={`text-sm ${testMode ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[1]}</p>
-                {testMode && <p className="text-xs text-gray-400 leading-tight">Skipped (test mode)</p>}
+                <p className={`text-sm ${(testMode || pipelineState[2] === "skipped") ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[2]}</p>
+                {(testMode || pipelineState[2] === "skipped") && (
+                  <p className="text-xs text-gray-400 leading-tight">{testMode ? "Skipped (test mode)" : "Skipped"}</p>
+                )}
               </div>
             </div>
 
-            {/* Node 3 with sub-nodes */}
-            <div className="flex gap-3">
-              <div className="flex flex-col items-center w-7 flex-shrink-0">
-                <NodeCircle state={pipelineState[2]} index={3} />
-                <div className={`w-0.5 flex-1 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[2]]}`} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-700 pt-1 mb-3">{PIPELINE_NODES[2]}</p>
-                {/* Sub-node 3.1 */}
-                <div className="flex gap-2 ml-1">
-                  <div className="flex flex-col items-center w-5 flex-shrink-0">
-                    <SubCircle state={sub31.color} />
-                    <div className={`w-0.5 h-4 mt-0.5 transition-colors duration-300 ${lineColor[sub31.color]}`} />
-                  </div>
-                  <p className="text-xs text-gray-600 pt-0.5 leading-tight">{sub31.label}</p>
-                </div>
-                {/* Sub-node 3.2 */}
-                <div className="flex gap-2 ml-1 mb-3">
-                  <div className="flex flex-col items-center w-5 flex-shrink-0">
-                    <SubCircle state={sub32.color} />
-                  </div>
-                  <p className="text-xs text-gray-600 pt-0.5 leading-tight">{sub32.label}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Node 4 — Title Classifier */}
+            {/* Node 4 — ICP Classification with sub-nodes */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
                 <NodeCircle state={pipelineState[3]} index={4} />
-                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[3]]}`} />
+                <div className={`w-0.5 flex-1 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[3]]}`} />
               </div>
-              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[3]}</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-700 pt-1 mb-3">{PIPELINE_NODES[3]}</p>
+                <div className="flex gap-2 ml-1">
+                  <div className="flex flex-col items-center w-5 flex-shrink-0">
+                    <SubCircle state={icpSub1.color} />
+                    <div className={`w-0.5 h-4 mt-0.5 transition-colors duration-300 ${lineColor[icpSub1.color]}`} />
+                  </div>
+                  <p className="text-xs text-gray-600 pt-0.5 leading-tight">{icpSub1.label}</p>
+                </div>
+                <div className="flex gap-2 ml-1 mb-3">
+                  <div className="flex flex-col items-center w-5 flex-shrink-0">
+                    <SubCircle state={icpSub2.color} />
+                  </div>
+                  <p className="text-xs text-gray-600 pt-0.5 leading-tight">{icpSub2.label}</p>
+                </div>
+              </div>
             </div>
 
-            {/* Node 5 — Database Upload */}
+            {/* Node 5 — Title Classifier (skipped for company leads) */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
                 <NodeCircle state={pipelineState[4]} index={5} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[4]]}`} />
               </div>
-              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[4]}</p>
+              <div className="pt-1">
+                <p className={`text-sm ${pipelineState[4] === "skipped" ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[4]}</p>
+                {pipelineState[4] === "skipped" && <p className="text-xs text-gray-400 leading-tight">Skipped</p>}
+              </div>
+            </div>
+
+            {/* Node 6 — Database Upload with person/company sub-nodes */}
+            <div className="flex gap-3">
+              <div className="flex flex-col items-center w-7 flex-shrink-0">
+                <NodeCircle state={pipelineState[5]} index={6} />
+                <div className={`w-0.5 flex-1 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[5]]}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-gray-700 pt-1 mb-3">{PIPELINE_NODES[5]}</p>
+                {[
+                  { label: "Person Visitor",  active: personLead },
+                  { label: "Company Visitor", active: !personLead },
+                ].map(({ label, active }) => (
+                  <div key={label} className="flex gap-2 ml-1 mb-2">
+                    <div className="flex flex-col items-center w-5 flex-shrink-0">
+                      <SubCircle state="gray" />
+                    </div>
+                    <p className={`text-xs pt-0.5 leading-tight ${!active && result ? "text-gray-300 line-through" : "text-gray-600"}`}>
+                      {label}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
 
           </div>
