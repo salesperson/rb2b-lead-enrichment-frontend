@@ -132,14 +132,14 @@ const PIPELINE_NODES = [
   "Database Upload",
 ];
 
-function derivePersonLead(res: WebhookResponse | null, form: Record<string, string>): boolean {
+function derivePersonLead(res: WebhookResponse | null, submittedPayload: Record<string, unknown>): boolean {
   if (res?.lead_type) return res.lead_type === "person";
   if (res) {
     if (res.title_meta?.relevance != null) return true;
     if (res.reason === "No Email" || res.reason === "Is Webmail" || res.reason === "Not Deliverable") return true;
     if (res.status === "ok" || res.status === "suppressed") return false;
   }
-  return !!(form["First Name"] || form["Last Name"] || form["Business Email"] || form["Title"]);
+  return !!(submittedPayload["First Name"] || submittedPayload["Last Name"] || submittedPayload["Business Email"] || submittedPayload["Title"]);
 }
 
 function getPipelineState(
@@ -310,9 +310,12 @@ export default function IcpDemo() {
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [testMode, setTestMode] = useState(false);
   const [disableCache, setDisableCache] = useState(false);
+  const [skipSuppression, setSkipSuppression] = useState(false);
+  const [skipDatabaseUpload, setSkipDatabaseUpload] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<WebhookResponse | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [submittedPayload, setSubmittedPayload] = useState<Record<string, unknown>>({});
   const [pollLeadId, setPollLeadId] = useState("");
   const [pollLoading, setPollLoading] = useState(false);
   const [pollResult, setPollResult] = useState<PollData | null>(null);
@@ -351,7 +354,10 @@ export default function IcpDemo() {
 
     if (testMode) payload["Is Test Email"] = true;
     if (disableCache) payload["Disable Cache"] = true;
+    if (skipSuppression) payload["Skip Suppression"] = true;
+    if (skipDatabaseUpload) payload["Skip Database Upload"] = true;
 
+    setSubmittedPayload(payload);
     setLoading(true);
     try {
       const res = await fetch("https://rb2b-lead-enrichment-middleware-ddh.vercel.app/webhook", {
@@ -464,7 +470,7 @@ export default function IcpDemo() {
   }
 
   const msg = result ? getResultMessage(result) : null;
-  const personLead = derivePersonLead(loading ? null : result, form);
+  const personLead = derivePersonLead(loading ? null : result, submittedPayload);
   const pipelineState = getPipelineState(loading ? null : result, personLead);
   const [icpSub1, icpSub2] = getIcpSubNodes(result?.path ?? null, pipelineState[3]);
 
@@ -593,24 +599,24 @@ export default function IcpDemo() {
               </div>
             )}
 
-            <label className="mt-4 flex items-center gap-2 cursor-pointer select-none w-fit">
-              <input
-                type="checkbox"
-                checked={testMode}
-                onChange={(e) => setTestMode(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-600">Skip Email Verification</span>
-            </label>
-            <label className="mt-2 flex items-center gap-2 cursor-pointer select-none w-fit">
-              <input
-                type="checkbox"
-                checked={disableCache}
-                onChange={(e) => setDisableCache(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-600">Disable Cache</span>
-            </label>
+            <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2">
+              {[
+                { label: "Skip Email Verification", checked: testMode,           onChange: setTestMode },
+                { label: "Disable Cache",           checked: disableCache,       onChange: setDisableCache },
+                { label: "Skip Suppression",        checked: skipSuppression,    onChange: setSkipSuppression },
+                { label: "Skip Database Upload",    checked: skipDatabaseUpload, onChange: setSkipDatabaseUpload },
+              ].map(({ label, checked, onChange }) => (
+                <label key={label} className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => onChange(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-600">{label}</span>
+                </label>
+              ))}
+            </div>
 
             <button
               onClick={handleSubmit}
@@ -908,10 +914,13 @@ export default function IcpDemo() {
             {/* Node 1 — OrderTime Check */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
-                <NodeCircle state={pipelineState[0]} index={1} />
-                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[0]]}`} />
+                <NodeCircle state={skipSuppression ? "skipped" : pipelineState[0]} index={1} />
+                <div className={`w-0.5 h-5 mt-0.5 transition-colors duration-300 ${lineColor[skipSuppression ? "skipped" : pipelineState[0]]}`} />
               </div>
-              <p className="text-sm text-gray-700 pt-1">{PIPELINE_NODES[0]}</p>
+              <div className="pt-1">
+                <p className={`text-sm ${skipSuppression ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[0]}</p>
+                {skipSuppression && <p className="text-xs text-gray-400 leading-tight">Skipped</p>}
+              </div>
             </div>
 
             {/* Node 2 — Domain Check */}
@@ -976,11 +985,11 @@ export default function IcpDemo() {
             {/* Node 6 — Database Upload with person/company sub-nodes */}
             <div className="flex gap-3">
               <div className="flex flex-col items-center w-7 flex-shrink-0">
-                <NodeCircle state={pipelineState[5]} index={6} />
-                <div className={`w-0.5 flex-1 mt-0.5 transition-colors duration-300 ${lineColor[pipelineState[5]]}`} />
+                <NodeCircle state={skipDatabaseUpload ? "skipped" : pipelineState[5]} index={6} />
+                <div className={`w-0.5 flex-1 mt-0.5 transition-colors duration-300 ${lineColor[skipDatabaseUpload ? "skipped" : pipelineState[5]]}`} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-gray-700 pt-1 mb-3">{PIPELINE_NODES[5]}</p>
+                <p className={`text-sm pt-1 mb-3 ${skipDatabaseUpload ? "text-gray-400" : "text-gray-700"}`}>{PIPELINE_NODES[5]}{skipDatabaseUpload && <span className="block text-xs text-gray-400 leading-tight font-normal">Skipped</span>}</p>
                 {[
                   { label: "Person Visitor",  active: personLead },
                   { label: "Company Visitor", active: !personLead },
