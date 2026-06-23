@@ -22,12 +22,35 @@ type RejectReason =
 type PathValue = "cache_hit" | "edu_domain" | "gpt" | null;
 
 type LabType =
-  | "hospital_lab" | "physician_office_lab" | "reference_lab"
-  | "urgent_care_or_retail_clinic" | "specialty_clinic" | "veterinary"
-  | "public_health_lab" | "research_or_academic_lab" | "toxicology_or_drug_testing_lab"
-  | "blood_bank_or_donor_center" | "occupational_health"
-  | "equipment_distributor_or_reseller" | "other_healthcare"
-  | "not_a_lab_buyer" | "unclear" | null;
+  | "Acupuncture" | "Addiction Medicine" | "Agriculture" | "Allergy"
+  | "Alternative Medicine" | "Aquarium" | "BehHealth/Mental" | "Biotech"
+  | "Brewery" | "CODING REQUIRED" | "CRYOGENICS" | "Cannabis Lab"
+  | "Cardiology" | "Cell Biology" | "Cell Culture" | "Chiropractor"
+  | "Coatings" | "Community Clinic" | "Compounding" | "Consultant"
+  | "Correctional Facility" | "Cosmetology" | "Crime Lab" | "Cytology"
+  | "DNA Testing" | "Dealer" | "Delete" | "Dental/Oral Surgery"
+  | "Dermatology" | "Drug Court" | "Drug Testing Facility" | "EMS"
+  | "Ear Nose Throat" | "Electron Microscopy" | "Endocrinology" | "Environmental"
+  | "Family Practice" | "Food & Beverage" | "Formulation" | "Fragrance"
+  | "Fuels/Oils" | "GENETICS" | "Gastroenterology" | "General Chemistry"
+  | "Group/Multi Specialty" | "Head Shop" | "Health Department" | "Hematology"
+  | "Home Health" | "Hospital" | "Imaging Center" | "Industrial"
+  | "Internal Medicine" | "Law Enforcement" | "MOHS" | "Manufacturer"
+  | "Medical Examiner" | "Medical Spa" | "Microbiology" | "Molecular"
+  | "Nephrology" | "Neuroscience" | "Non Medical" | "Nursing Home/Long Term Care"
+  | "OB-GYN" | "Occupational Health" | "Oncology Clinic" | "Ophthalmology"
+  | "Orthopedics" | "PCR Lab" | "PODIATRY" | "Pain Management Clinic"
+  | "Pediatrics" | "Personal" | "Pharmacy" | "Phelebotomy" | "Polymer"
+  | "Primary Care" | "Psychiatry" | "Public Health" | "Pulmonary Disease"
+  | "Reference Lab" | "Rehabilitation Center" | "Reproduction" | "Research Facility"
+  | "Rheumatology" | "Rural Clinic" | "SIMCHEM Adhesives" | "SIMCHEM Solder"
+  | "SIMCHEM Solvents" | "SIMCHEM Waxes" | "School" | "Skilled Nursing Facility"
+  | "Staffing Agency" | "Student Health Lab" | "Supplier" | "Surgical Center"
+  | "Toxicology" | "Urgent Care Facility" | "Urology" | "Veterinarian"
+  | "Waived Lab" | "Water/Air/Metals/Soil" | "Wellness Clinic" | "Womens Health"
+  | "Wound Care" | "XRF" | "Zoology" | "unclear" | null;
+
+type RecommendedAction = "proceed" | "suppress_or_review" | null;
 
 type CliaComplexity = "waived" | "moderate_or_high" | "unknown" | null;
 type Confidence = "high" | "medium" | "low" | null;
@@ -36,6 +59,7 @@ type TitleRelevance = "decision_maker" | "influencer" | "not_relevant" | "unknow
 interface Classification {
   lab_type?: LabType;
   clia_complexity?: CliaComplexity;
+  recommended_action?: RecommendedAction;
   confidence?: Confidence;
   evidence?: string | null;
   evidence_url?: string | null;
@@ -70,6 +94,7 @@ interface WebhookResponse {
   // rejected (Not ICP) — flat classification fields
   lab_type?: LabType;
   clia_complexity?: CliaComplexity;
+  recommended_action?: RecommendedAction;
   confidence?: Confidence;
   evidence?: string | null;
   evidence_url?: string | null;
@@ -84,24 +109,6 @@ interface WebhookResponse {
   has_order?: boolean;
   ordertime_url?: string | null;
 }
-
-const LAB_TYPE_LABELS: Record<NonNullable<LabType>, string> = {
-  hospital_lab:                      "Hospital / Health System Lab",
-  physician_office_lab:              "Physician Office Lab",
-  reference_lab:                     "Reference / Commercial Lab",
-  urgent_care_or_retail_clinic:      "Urgent Care / Retail Clinic",
-  specialty_clinic:                  "Specialty Clinic",
-  veterinary:                        "Veterinary",
-  public_health_lab:                 "Public Health Lab",
-  research_or_academic_lab:          "Research / Academic Lab",
-  toxicology_or_drug_testing_lab:    "Toxicology / Drug Testing Lab",
-  blood_bank_or_donor_center:        "Blood Bank / Donor Center",
-  occupational_health:               "Occupational Health",
-  equipment_distributor_or_reseller: "Equipment Distributor (not end-user)",
-  other_healthcare:                  "Other Healthcare",
-  not_a_lab_buyer:                   "Not a Lab Buyer",
-  unclear:                           "Unclear",
-};
 
 const CLIA_LABELS: Record<NonNullable<CliaComplexity>, string> = {
   waived:           "Waived (point-of-care only)",
@@ -408,9 +415,9 @@ export default function MercedesDemo() {
         <div className="flex-1 space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">ICP Filter Demo</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Block Scientific — ICP Classifier</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Submit a lead payload to the webhook and see the classification result.
+            Submit a lead to the pipeline and see how the lab-type classifier categorizes the organization.
           </p>
         </div>
 
@@ -625,10 +632,20 @@ export default function MercedesDemo() {
                   )}
 
                   <dl className="space-y-2">
+                    {cls.recommended_action && (
+                      <div className="flex gap-2">
+                        <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Action</dt>
+                        <dd>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${cls.recommended_action === "proceed" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+                            {cls.recommended_action === "proceed" ? "Proceed" : "Suppress / Review"}
+                          </span>
+                        </dd>
+                      </div>
+                    )}
                     {cls.lab_type && (
                       <div className="flex gap-2">
                         <dt className="text-xs font-medium text-gray-500 w-36 flex-shrink-0 pt-0.5">Lab Type</dt>
-                        <dd className="text-sm text-gray-900">{LAB_TYPE_LABELS[cls.lab_type]}</dd>
+                        <dd className="text-sm text-gray-900">{cls.lab_type}</dd>
                       </div>
                     )}
                     {cls.clia_complexity && (
