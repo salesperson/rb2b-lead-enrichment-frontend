@@ -713,10 +713,15 @@ export default function IcpDemo() {
 
               return (
                 <div>
-                  <div className="flex items-center gap-3 mb-4">
+                  <div className="flex items-center gap-3 mb-4 flex-wrap">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
                       {passed ? "✅ PASSED" : "⛔ REJECTED"}
                     </span>
+                    {cls.lab_type && (
+                      <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                        {LAB_TYPE_LABELS[cls.lab_type]}
+                      </span>
+                    )}
                     {!passed && result.reason && (
                       <span className="text-sm text-gray-500">{result.reason}</span>
                     )}
