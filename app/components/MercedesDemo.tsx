@@ -415,7 +415,7 @@ export default function MercedesDemo() {
         <div className="flex-1 space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Block Scientific — ICP Classifier</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Mercedes Scientific — ICP Classifier</h1>
           <p className="text-sm text-gray-500 mt-1">
             Submit a lead to the pipeline and see how the lab-type classifier categorizes the organization.
           </p>
