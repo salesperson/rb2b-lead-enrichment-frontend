@@ -784,10 +784,13 @@ export default function MercedesDemo() {
                 <p className="text-sm text-gray-700 pt-1 mb-3">{PIPELINE_NODES[3]}</p>
                 <div className="flex gap-2 ml-1">
                   <div className="flex flex-col items-center w-5 flex-shrink-0">
-                    <SubCircle state={icpSub1.color} />
-                    <div className={`w-0.5 h-4 mt-0.5 transition-colors duration-300 ${lineColor[icpSub1.color]}`} />
+                    <SubCircle state={disableCache ? "skipped" : icpSub1.color} />
+                    <div className={`w-0.5 h-4 mt-0.5 transition-colors duration-300 ${lineColor[disableCache ? "skipped" : icpSub1.color]}`} />
                   </div>
-                  <p className="text-xs text-gray-600 pt-0.5 leading-tight">{icpSub1.label}</p>
+                  <p className={`text-xs pt-0.5 leading-tight ${disableCache ? "text-gray-400" : "text-gray-600"}`}>
+                    {disableCache ? "Cache Lookup" : icpSub1.label}
+                    {disableCache && <span className="block text-gray-400">Skipped</span>}
+                  </p>
                 </div>
                 <div className="flex gap-2 ml-1 mb-3">
                   <div className="flex flex-col items-center w-5 flex-shrink-0">
