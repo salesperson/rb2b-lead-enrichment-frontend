@@ -4,7 +4,7 @@ import { useState } from "react";
 
 // Mercedes pipeline endpoint. The backend route (/webhook/mercedes) is not yet
 // live — this twin is wired ahead of it. Change here to repoint the page.
-const WEBHOOK_URL = "https://rb2b-lead-enrichment-middleware-ddh.vercel.app/webhook";
+const WEBHOOK_URL = "https://rb2b-lead-enrichment-middleware-ddhh-i9seg7c5b-jbb-ai.vercel.app/webhook";
 
 
 type ResponseStatus = "ok" | "rejected" | "suppressed" | "error";
@@ -119,7 +119,7 @@ const CLIA_LABELS: Record<NonNullable<CliaComplexity>, string> = {
 type NodeState = "gray" | "green" | "red" | "skipped" | "suppressed";
 
 const PIPELINE_NODES = [
-  "OrderTime Check",
+  "CRM Check",
   "Domain Check",
   "Deliverability Check",
   "ICP Classification",
