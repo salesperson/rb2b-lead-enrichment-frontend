@@ -4,7 +4,7 @@ import { useState } from "react";
 
 // Mercedes pipeline endpoint. The backend route (/webhook/mercedes) is not yet
 // live — this twin is wired ahead of it. Change here to repoint the page.
-const WEBHOOK_URL = "https://rb2b-lead-enrichment-middleware-ddh.vercel.app/mercedes/webhook";
+const WEBHOOK_URL = "https://rb2b-lead-enrichment-middleware-ddh.vercel.app/mercedes/rb2b_publish";
 
 
 type ResponseStatus = "ok" | "rejected" | "suppressed" | "error";
